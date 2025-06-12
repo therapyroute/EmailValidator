@@ -40,7 +40,7 @@
             font-weight: bold;
             color: #555;
         }
-        input[type="email"], textarea {
+        input[type="email"], input[type="file"], textarea, select {
             width: 100%;
             padding: 10px;
             border: 1px solid #ddd;
@@ -75,9 +75,16 @@
             cursor: pointer;
             font-size: 16px;
             margin-right: 10px;
+            margin-bottom: 10px;
         }
         button:hover {
             background-color: #005a8b;
+        }
+        .download-btn {
+            background-color: #28a745;
+        }
+        .download-btn:hover {
+            background-color: #218838;
         }
         .results {
             margin-top: 30px;
@@ -116,15 +123,76 @@
             background-color: #e8f4fd;
             border-color: #bee5eb;
         }
+        .csv-info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #0c5460;
+        }
+        .file-upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 5px;
+            padding: 20px;
+            text-align: center;
+            background-color: #fafafa;
+            margin-bottom: 15px;
+        }
+        .file-upload-area:hover {
+            border-color: #007cba;
+            background-color: #f0f8ff;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .csv-results {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>📧 EmailValidator Interactive Tool</h1>
         
-        <form method="POST">
+        <form method="POST" enctype="multipart/form-data">
             <div class="form-section">
-                <h3>Email Input</h3>
+                <h3>CSV File Upload</h3>
+                <div class="csv-info">
+                    <strong>CSV Format:</strong> Upload a CSV file with email addresses. The file should have a column named 'email' or emails in the first column.
+                </div>
+                <div class="form-group">
+                    <label for="csv_file">Upload CSV File:</label>
+                    <div class="file-upload-area">
+                        <input type="file" id="csv_file" name="csv_file" accept=".csv" style="margin-bottom: 10px;">
+                        <p>Choose a CSV file or drag and drop it here</p>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="email_column">Email Column Name/Index:</label>
+                    <input type="text" id="email_column" name="email_column" 
+                           value="<?= htmlspecialchars($_POST['email_column'] ?? 'email') ?>" 
+                           placeholder="email (or column index like 0, 1, 2...)">
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Manual Email Input</h3>
                 <div class="form-group">
                     <label for="single_email">Single Email:</label>
                     <input type="email" id="single_email" name="single_email" 
@@ -162,9 +230,14 @@
 
             <button type="submit" name="validate">Validate Emails</button>
             <button type="submit" name="demo">Run Demo</button>
+            
+            <?php if (isset($_SESSION['last_results'])): ?>
+            <button type="submit" name="download_csv" class="download-btn">Download Results as CSV</button>
+            <?php endif; ?>
         </form>
 
         <?php
+        session_start();
         require_once 'vendor/autoload.php';
 
         use Egulias\EmailValidator\EmailValidator;
@@ -176,15 +249,28 @@
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $validator = new EmailValidator();
             
+            // Handle CSV download
+            if (isset($_POST['download_csv']) && isset($_SESSION['last_results'])) {
+                downloadCSV($_SESSION['last_results']);
+                exit;
+            }
+            
             echo '<div class="results">';
             
             if (isset($_POST['demo'])) {
                 echo '<h3>Demo Results</h3>';
-                runDemo($validator);
+                $results = runDemo($validator);
+                $_SESSION['last_results'] = $results;
             } elseif (isset($_POST['validate'])) {
                 echo '<h3>Validation Results</h3>';
                 
                 $emails = [];
+                
+                // Handle CSV file upload
+                if (isset($_FILES['csv_file']) && $_FILES['csv_file']['error'] === UPLOAD_ERR_OK) {
+                    $csvEmails = processCSVFile($_FILES['csv_file'], $_POST['email_column'] ?? 'email');
+                    $emails = array_merge($emails, $csvEmails);
+                }
                 
                 // Collect emails from single input
                 if (!empty($_POST['single_email'])) {
@@ -203,18 +289,63 @@
                 }
                 
                 if (empty($emails)) {
-                    echo '<p>Please enter at least one email address.</p>';
+                    echo '<p>Please enter at least one email address or upload a CSV file.</p>';
                 } else {
                     $validations = $_POST['validations'] ?? ['rfc'];
-                    validateEmails($validator, $emails, $validations);
+                    $results = validateEmails($validator, $emails, $validations);
+                    $_SESSION['last_results'] = $results;
                 }
             }
             
             echo '</div>';
         }
 
+        function processCSVFile($file, $emailColumn) {
+            $emails = [];
+            $filePath = $file['tmp_name'];
+            
+            if (($handle = fopen($filePath, "r")) !== FALSE) {
+                $header = fgetcsv($handle);
+                $emailIndex = false;
+                
+                // Try to find email column by name
+                if ($header) {
+                    $emailIndex = array_search(strtolower($emailColumn), array_map('strtolower', $header));
+                    
+                    // If not found by name, try as numeric index
+                    if ($emailIndex === false && is_numeric($emailColumn)) {
+                        $emailIndex = intval($emailColumn);
+                        if ($emailIndex >= count($header)) {
+                            $emailIndex = false;
+                        }
+                    }
+                    
+                    // Default to first column if still not found
+                    if ($emailIndex === false) {
+                        $emailIndex = 0;
+                    }
+                }
+                
+                // Read data rows
+                $rowCount = 0;
+                while (($data = fgetcsv($handle)) !== FALSE && $rowCount < 1000) { // Limit to 1000 emails
+                    if (isset($data[$emailIndex]) && !empty(trim($data[$emailIndex]))) {
+                        $email = trim($data[$emailIndex]);
+                        if (filter_var($email, FILTER_VALIDATE_EMAIL) || strpos($email, '@') !== false) {
+                            $emails[] = $email;
+                        }
+                    }
+                    $rowCount++;
+                }
+                fclose($handle);
+            }
+            
+            return array_unique($emails); // Remove duplicates
+        }
+
         function validateEmails($validator, $emails, $validationTypes) {
             $validationStrategies = [];
+            $results = [];
             
             if (in_array('rfc', $validationTypes)) {
                 $validationStrategies['RFC'] = new RFCValidation();
@@ -231,34 +362,61 @@
                 $validationStrategies['Combined'] = new MultipleValidationWithAnd(array_values($validationStrategies));
             }
             
+            echo '<div class="csv-results">';
+            echo '<table>';
+            echo '<thead><tr><th>Email</th>';
+            foreach ($validationStrategies as $name => $validation) {
+                echo "<th>$name</th>";
+            }
+            echo '<th>Warnings</th></tr></thead>';
+            echo '<tbody>';
+            
             foreach ($emails as $email) {
-                echo "<h4>Email: <span class='email-display'>$email</span></h4>";
+                echo "<tr>";
+                echo "<td class='email-display'>$email</td>";
+                
+                $emailResult = ['email' => $email];
                 
                 foreach ($validationStrategies as $name => $validation) {
                     $isValid = $validator->isValid($email, $validation);
                     $status = $isValid ? 'valid' : 'invalid';
                     $icon = $isValid ? '✅' : '❌';
                     
-                    echo "<div class='result-item $status'>";
-                    echo "<div class='validation-type'>$name</div>";
-                    echo "$icon " . ($isValid ? 'Valid' : 'Invalid');
+                    echo "<td class='$status'>$icon " . ($isValid ? 'Valid' : 'Invalid');
                     
+                    $errorMsg = '';
                     if (!$isValid && $validator->getError()) {
-                        echo "<br><small>Error: " . $validator->getError()->description() . "</small>";
+                        $errorMsg = $validator->getError()->description();
+                        echo "<br><small>$errorMsg</small>";
                     }
+                    echo "</td>";
                     
-                    if ($validator->hasWarnings()) {
-                        echo "<div class='warning' style='margin-top: 10px; padding: 5px;'>";
-                        echo "<strong>Warnings:</strong><br>";
-                        foreach ($validator->getWarnings() as $warning) {
-                            echo "• " . get_class($warning) . "<br>";
-                        }
-                        echo "</div>";
-                    }
-                    
-                    echo "</div>";
+                    $emailResult[$name] = $isValid ? 'Valid' : 'Invalid';
+                    $emailResult[$name . '_error'] = $errorMsg;
                 }
+                
+                // Warnings column
+                $warningsText = '';
+                if ($validator->hasWarnings()) {
+                    $warnings = [];
+                    foreach ($validator->getWarnings() as $warning) {
+                        $warnings[] = basename(get_class($warning));
+                    }
+                    $warningsText = implode(', ', $warnings);
+                }
+                echo "<td><small>$warningsText</small></td>";
+                $emailResult['warnings'] = $warningsText;
+                
+                echo "</tr>";
+                $results[] = $emailResult;
             }
+            
+            echo '</tbody></table>';
+            echo '</div>';
+            
+            echo '<p><strong>Total emails processed:</strong> ' . count($emails) . '</p>';
+            
+            return $results;
         }
 
         function runDemo($validator) {
@@ -277,9 +435,36 @@
             echo '<h4>Demo with various email formats:</h4>';
             
             $validationTypes = ['rfc', 'dns', 'no_warnings'];
-            validateEmails($validator, $demoEmails, $validationTypes);
+            $results = validateEmails($validator, $demoEmails, $validationTypes);
             
             echo '</div>';
+            
+            return $results;
+        }
+
+        function downloadCSV($results) {
+            if (empty($results)) {
+                return;
+            }
+            
+            $filename = 'email_validation_results_' . date('Y-m-d_H-i-s') . '.csv';
+            
+            header('Content-Type: text/csv');
+            header('Content-Disposition: attachment; filename="' . $filename . '"');
+            header('Cache-Control: no-cache, must-revalidate');
+            
+            $output = fopen('php://output', 'w');
+            
+            // Write header
+            $headers = array_keys($results[0]);
+            fputcsv($output, $headers);
+            
+            // Write data
+            foreach ($results as $row) {
+                fputcsv($output, $row);
+            }
+            
+            fclose($output);
         }
         ?>
     </div>
