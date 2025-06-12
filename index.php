@@ -1,8 +1,8 @@
 <?php
-session_start();
-
-// Handle CSV download BEFORE any HTML output
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['download_csv']) && isset($_SESSION['last_results'])) {
+// Handle CSV download BEFORE ANY output including session_start()
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['download_csv'])) {
+    session_start();
+    if (isset($_SESSION['last_results'])) {
     require_once 'vendor/autoload.php';
     
     function downloadCSV($results) {
@@ -97,7 +97,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['download_csv']) && is
     }
     
     downloadCSV($_SESSION['last_results']);
+    }
+    exit; // Make sure we exit after CSV download
 }
+
+// Start session for normal page loads
+session_start();
 ?>
 <!DOCTYPE html>
 <html lang="en">
