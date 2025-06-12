@@ -240,16 +240,10 @@ session_start();
             <button type="submit" name="validate">Validate Emails</button>
             <button type="submit" name="demo">Run Demo</button>
 
-            <?php if (isset($_SESSION['last_results']) && !empty($_SESSION['last_results'])): ?>
-            <div style="margin-top: 15px; padding: 15px; background-color: #d4edda; border: 1px solid #28a745; border-radius: 5px;">
-                <h4 style="margin: 0 0 10px 0; color: #155724;">📁 Download Validation Results</h4>
-                <button type="submit" name="download_csv" class="download-btn" style="font-size: 16px; padding: 12px 20px;">
-                    📥 <?= isset($_SESSION['original_file_data']) ? 'Download Enhanced CSV (Original + Results)' : 'Download Results as CSV' ?>
-                </button>
-                <p style="margin: 10px 0 0 0; font-size: 14px; color: #155724;">
-                    Results for <?= count($_SESSION['last_results']) ?> emails are ready for download.
-                </p>
-            </div>
+            <?php if (isset($_SESSION['last_results'])): ?>
+            <button type="submit" name="download_csv" class="download-btn">
+                <?= isset($_SESSION['original_file_data']) ? 'Download Enhanced CSV (Original + Results)' : 'Download Results as CSV' ?>
+            </button>
             <?php endif; ?>
         </form>
 
@@ -461,7 +455,6 @@ session_start();
             $validationStrategies = [];
             $results = [];
 
-            // Always include individual validations for comprehensive results
             if (in_array('rfc', $validationTypes)) {
                 $validationStrategies['RFC'] = new RFCValidation();
             }
@@ -472,9 +465,9 @@ session_start();
                 $validationStrategies['No RFC Warnings'] = new NoRFCWarningsValidation();
             }
 
-            // Add combined validation only if multiple strategies exist, but keep individual ones
+            // Multiple validation if more than one is selected
             if (count($validationStrategies) > 1) {
-                $validationStrategies['Overall Result'] = new MultipleValidationWithAnd(array_values($validationStrategies));
+                $validationStrategies['Combined'] = new MultipleValidationWithAnd(array_values($validationStrategies));
             }
 
             echo '<div class="csv-results">';
@@ -533,33 +526,14 @@ session_start();
                     echo "<td class='$status'>$icon " . ($isValid ? 'Valid' : 'Invalid');
 
                     $errorMsg = '';
-                    $errorDetails = '';
                     if (!$isValid && $validator->getError()) {
-                        $error = $validator->getError();
-                        $errorMsg = $error->description();
-                        $errorDetails = get_class($error->reason());
-                        echo "<br><small><strong>Error:</strong> $errorMsg</small>";
-                        if ($errorDetails !== $errorMsg) {
-                            echo "<br><small><strong>Type:</strong> " . basename($errorDetails) . "</small>";
-                        }
+                        $errorMsg = $validator->getError()->description();
+                        echo "<br><small>$errorMsg</small>";
                     }
-
-                    // Also show warnings for this specific validation
-                    if ($validator->hasWarnings()) {
-                        $warnings = [];
-                        foreach ($validator->getWarnings() as $warning) {
-                            $warnings[] = basename(get_class($warning));
-                        }
-                        if (!empty($warnings)) {
-                            echo "<br><small><strong>Warnings:</strong> " . implode(', ', $warnings) . "</small>";
-                        }
-                    }
-
                     echo "</td>";
 
                     $emailResult[$name] = $isValid ? 'Valid' : 'Invalid';
                     $emailResult[$name . '_error'] = $errorMsg;
-                    $emailResult[$name . '_error_type'] = basename($errorDetails);
                 }
 
                 // Warnings column
@@ -581,54 +555,7 @@ session_start();
             echo '</tbody></table>';
             echo '</div>';
 
-            // Calculate summary statistics
-            $totalEmails = count($emails);
-            $validCount = 0;
-            $invalidCount = 0;
-            $errorTypes = [];
-
-            foreach ($results as $result) {
-                $hasValidResult = false;
-                foreach ($result as $key => $value) {
-                    if (strpos($key, '_error') === false && strpos($key, '_type') === false && $key !== 'email' && $key !== 'warnings') {
-                        if ($value === 'Valid') {
-                            $hasValidResult = true;
-                            break;
-                        }
-                    }
-                }
-                if ($hasValidResult) {
-                    $validCount++;
-                } else {
-                    $invalidCount++;
-                    // Collect error types
-                    foreach ($result as $key => $value) {
-                        if (strpos($key, '_error_type') !== false && !empty($value)) {
-                            $errorTypes[$value] = ($errorTypes[$value] ?? 0) + 1;
-                        }
-                    }
-                }
-            }
-
-            echo '</tbody></table>';
-            echo '</div>';
-
-            echo '<div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; border: 1px solid #dee2e6;">';
-            echo '<h4>📊 Validation Summary</h4>';
-            echo "<p><strong>Total emails processed:</strong> $totalEmails</p>";
-            echo "<p><strong>Valid emails:</strong> <span style='color: #28a745;'>$validCount (" . round(($validCount/$totalEmails)*100, 1) . "%)</span></p>";
-            echo "<p><strong>Invalid emails:</strong> <span style='color: #dc3545;'>$invalidCount (" . round(($invalidCount/$totalEmails)*100, 1) . "%)</span></p>";
-            
-            if (!empty($errorTypes)) {
-                echo '<p><strong>Common error types:</strong></p>';
-                echo '<ul>';
-                arsort($errorTypes);
-                foreach (array_slice($errorTypes, 0, 5) as $errorType => $count) {
-                    echo "<li>$errorType: $count occurrences</li>";
-                }
-                echo '</ul>';
-            }
-            echo '</div>';
+            echo '<p><strong>Total emails processed:</strong> ' . count($emails) . '</p>';
 
             return $results;
         }
