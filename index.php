@@ -76,76 +76,31 @@ function validateEmails($emails, $validationTypes = []) {
     if (in_array('spoof_check', $validationTypes)) {
         if (extension_loaded('intl')) {
             $validations[] = new SpoofCheckValidation();
-        } else {
-            echo '<div class="csv-info" style="background-color: #f8d7da; border-color: #dc3545; margin: 10px 0; padding: 10px; border-radius: 4px;">';
-            echo '<strong>Spoof Check Error:</strong> The intl extension is not loaded.';
-            echo '</div>';
         }
     }
 
     // Create multiple validation with all selected validations
     $multipleValidation = new MultipleValidationWithAnd($validations);
 
-    // Additional validation functions
-    function validateEmailLength($email) {
-        return strlen($email) <= 320;
-    }
-
-    function validateEmailPattern($email) {
-        if (strpos($email, '..') !== false) return false;
-        if (substr_count($email, '@') != 1) return false;
-        if (strpos($email, ' ') !== false) return false;
-        if (preg_match('/^[.\-_]|[.\-_]@/', $email)) return false;
-        if (preg_match('/@[.\-_]|[.\-_]$/', $email)) return false;
-        return true;
-    }
-
-    function isDisposableEmail($email) {
-        $disposableDomains = [
-            '10minutemail.com', 'tempmail.org', 'guerrillamail.com', 
-            'mailinator.com', 'yopmail.com', 'temp-mail.org'
-        ];
-        $domain = substr(strrchr($email, "@"), 1);
-        return in_array(strtolower($domain), $disposableDomains);
-    }
-
     foreach ($emails as $email) {
         $email = trim($email);
         if (empty($email)) continue;
 
         $isValid = $emailValidator->isValid($email, $multipleValidation);
-        $errors = [];
+        $errors = '';
 
-        // Apply additional validations if selected
-        if (in_array('length_check', $validationTypes) && !validateEmailLength($email)) {
-            $isValid = false;
-            $errors[] = 'Email exceeds 320 character limit';
-        }
-
-        if (in_array('pattern_check', $validationTypes) && !validateEmailPattern($email)) {
-            $isValid = false;
-            $errors[] = 'Suspicious email pattern detected';
-        }
-
-        if (in_array('disposable_check', $validationTypes) && isDisposableEmail($email)) {
-            $isValid = false;
-            $errors[] = 'Disposable email domain detected';
-        }
-
-        $validationResult = [
-            'email' => $email,
-            'is_valid' => $isValid ? 'Valid' : 'Invalid',
-            'errors' => $isValid ? '' : (!empty($errors) ? implode('; ', $errors) : 'Validation failed')
-        ];
-
-        if (!$isValid && empty($errors)) {
+        if (!$isValid) {
             $error = $emailValidator->getError();
             if ($error) {
-                $validationResult['errors'] = $error->description();
+                $errors = $error->description();
             }
         }
 
-        $results[] = $validationResult;
+        $results[] = [
+            'email' => $email,
+            'is_valid' => $isValid ? 'Valid' : 'Invalid',
+            'errors' => $errors
+        ];
     }
 
     return $results;
@@ -165,10 +120,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         // Store results in session for download
         $_SESSION['validation_results'] = $results;
-    } else {
-        echo '<div class="csv-info" style="background-color: #f8d7da; border-color: #dc3545; margin: 10px 0; padding: 10px; border-radius: 4px;">';
-        echo '<strong>Error:</strong> Please upload a CSV file.';
-        echo '</div>';
     }
 }
 ?>
@@ -216,16 +167,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
         .checkbox-group {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 10px;
             margin-top: 10px;
         }
         .checkbox-item {
             display: flex;
             align-items: center;
-            padding: 8px;
-            border-radius: 4px;
-            background-color: #f8f9fa;
         }
         .checkbox-item input[type="checkbox"] {
             margin-right: 8px;
@@ -249,15 +197,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             background-color: #0056b3;
         }
         .csv-info {
-            margin: 10px 0;
-            padding: 10px;
+            margin: 20px 0;
+            padding: 15px;
             border-radius: 4px;
             border-left: 4px solid #28a745;
             background-color: #d4edda;
-        }
-        .csv-info.error {
-            border-left-color: #dc3545;
-            background-color: #f8d7da;
         }
         table {
             width: 100%;
@@ -325,21 +269,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         <input type="checkbox" id="spoof_check" name="validations[]" value="spoof_check" 
                                <?= in_array('spoof_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
                         <label for="spoof_check">Spoof Check</label>
-                    </div>
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="length_check" name="validations[]" value="length_check" 
-                               <?= in_array('length_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
-                        <label for="length_check">Length Validation</label>
-                    </div>
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="pattern_check" name="validations[]" value="pattern_check" 
-                               <?= in_array('pattern_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
-                        <label for="pattern_check">Pattern Check</label>
-                    </div>
-                    <div class="checkbox-item">
-                        <input type="checkbox" id="disposable_check" name="validations[]" value="disposable_check" 
-                               <?= in_array('disposable_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
-                        <label for="disposable_check">Disposable Email Check</label>
                     </div>
                 </div>
             </div>
