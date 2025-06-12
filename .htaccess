@@ -1,12 +1,14 @@
 
-# PHP configuration for large file uploads
-php_value upload_max_filesize 50M
-php_value post_max_size 50M
-php_value memory_limit 512M
-php_value max_execution_time 300
-php_value max_input_time 300
+# PHP configuration for large file uploads (increased limits)
+php_value upload_max_filesize 300M
+php_value post_max_size 300M
+php_value memory_limit 1G
+php_value max_execution_time 600
+php_value max_input_time 600
+php_value max_input_vars 10000
 
 # Enable compression for better performance
 <IfModule mod_deflate.c>
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json
+</IfModule>
 </IfModule>
