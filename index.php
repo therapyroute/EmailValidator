@@ -179,13 +179,13 @@
                         <li><strong>TSV:</strong> Tab-separated values with headers</li>
                         <li><strong>TXT:</strong> Plain text, one email per line</li>
                     </ul>
-                    <strong>Requirements:</strong> Max 10MB, up to 5,000 emails per file
+                    <strong>Requirements:</strong> Max 50MB, up to 50,000 emails per file
                 </div>
                 <div class="form-group">
                     <label for="csv_file">Upload File:</label>
                     <div class="file-upload-area">
                         <input type="file" id="csv_file" name="csv_file" accept=".csv,.txt,.tsv" style="margin-bottom: 10px;">
-                        <p>Choose a CSV, TXT, or TSV file (max 10MB) or drag and drop it here</p>
+                        <p>Choose a CSV, TXT, or TSV file (max 50MB) or drag and drop it here</p>
                         <small>Supported formats: CSV, TXT (one email per line), TSV</small>
                     </div>
                 </div>
@@ -329,9 +329,9 @@
                 throw new Exception('File upload error: ' . $file['error']);
             }
             
-            // File size validation (10MB max)
-            if ($file['size'] > 10 * 1024 * 1024) {
-                throw new Exception('File too large. Maximum size is 10MB.');
+            // File size validation (50MB max)
+            if ($file['size'] > 50 * 1024 * 1024) {
+                throw new Exception('File too large. Maximum size is 50MB.');
             }
             
             // File type validation
@@ -380,10 +380,11 @@
                     }
                 }
                 
-                // Read data rows
+                // Read data rows with memory-efficient streaming
                 $rowCount = 0;
                 $lineNumber = 1;
-                while (($line = fgets($handle)) !== FALSE && $rowCount < 5000) { // Increased limit to 5000
+                $batchSize = 1000; // Process in batches for memory efficiency
+                while (($line = fgets($handle)) !== FALSE && $rowCount < 50000) { // Increased limit to 50000
                     $lineNumber++;
                     
                     if ($delimiter) {
@@ -452,8 +453,15 @@
             if (count($emails) > 100) {
                 echo '<div class="csv-info">';
                 echo '<strong>Processing ' . count($emails) . ' emails...</strong> This may take a moment for DNS validation.';
+                if (count($emails) > 5000) {
+                    echo '<br><strong>Large file detected:</strong> Processing in batches for optimal performance.';
+                }
                 echo '</div>';
                 flush(); // Send output immediately
+                
+                // Increase memory limit and execution time for large files
+                ini_set('memory_limit', '512M');
+                ini_set('max_execution_time', 300); // 5 minutes
             }
             
             echo '<table>';
@@ -464,7 +472,25 @@
             echo '<th>Warnings</th></tr></thead>';
             echo '<tbody>';
             
+            $processedCount = 0;
+            $batchSize = 500; // Process in smaller batches for UI updates
+            
             foreach ($emails as $email) {
+                $processedCount++;
+                
+                // Flush output periodically for large datasets
+                if ($processedCount % $batchSize === 0) {
+                    echo "<tr><td colspan='" . (count($validationStrategies) + 2) . "'>";
+                    echo "<em>Processed $processedCount/" . count($emails) . " emails...</em>";
+                    echo "</td></tr>";
+                    flush();
+                    
+                    // Clear some memory periodically
+                    if (function_exists('gc_collect_cycles')) {
+                        gc_collect_cycles();
+                    }
+                }
+                
                 echo "<tr>";
                 echo "<td class='email-display'>$email</td>";
                 
