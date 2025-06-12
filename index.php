@@ -235,6 +235,13 @@ session_start();
                         <label for="no_warnings">No RFC Warnings</label>
                     </div>
                 </div>
+                <div class="checkbox-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="spoof_check" name="validations[]" value="spoof_check" 
+                               <?= in_array('spoof_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
+                        <label for="spoof_check">Spoof Check (requires PHP intl)</label>
+                    </div>
+                </div>
             </div>
 
             <button type="submit" name="validate">Validate Emails</button>
@@ -464,6 +471,18 @@ session_start();
             if (in_array('no_warnings', $validationTypes)) {
                 $validationStrategies['No RFC Warnings'] = new NoRFCWarningsValidation();
             }
+            // Add Spoof Check if selected
+            if (in_array('spoof_check', $validationTypes)) {
+                if (extension_loaded('intl')) {
+                    $validationStrategies['Spoof Check'] = new Egulias\EmailValidator\Validation\SpoofCheckValidation();
+                } else {
+                    echo '<div class="csv-info" style="background-color: #f8d7da; border-color: #dc3545;">';
+                    echo '<strong>Spoof Check Error:</strong> The intl extension is not loaded. Please install and enable it for Spoof Check to work.';
+                    echo '</div>';
+                    // Optionally, don't add the validation strategy or handle differently
+                }
+            }
+
 
             // Multiple validation if more than one is selected
             if (count($validationStrategies) > 1) {
