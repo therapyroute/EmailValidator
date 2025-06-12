@@ -234,6 +234,21 @@ session_start();
                                <?= in_array('no_warnings', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
                         <label for="no_warnings">No RFC Warnings</label>
                     </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="spoof_check" name="validations[]" value="spoof_check" 
+                               <?= in_array('spoof_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
+                        <label for="spoof_check">Spoof Check</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="length_check" name="validations[]" value="length_check" 
+                               <?= in_array('length_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
+                        <label for="length_check">Email Length Check</label>
+                    </div>
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="role_check" name="validations[]" value="role_check" 
+                               <?= in_array('role_check', $_POST['validations'] ?? []) ? 'checked' : '' ?>>
+                        <label for="role_check">Role-based Email Check</label>
+                    </div>
                 </div>
             </div>
 
@@ -261,6 +276,90 @@ session_start();
         use Egulias\EmailValidator\Validation\DNSCheckValidation;
         use Egulias\EmailValidator\Validation\MultipleValidationWithAnd;
         use Egulias\EmailValidator\Validation\NoRFCWarningsValidation;
+        use Egulias\EmailValidator\Validation\Extra\SpoofCheckValidation;
+
+        // Custom validation classes
+        class EmailLengthValidation implements \Egulias\EmailValidator\Validation\EmailValidation {
+            private $error;
+            
+            public function isValid(string $email, \Egulias\EmailValidator\EmailLexer $emailLexer): bool {
+                // RFC 5321 limit: 320 characters total (64 local + 1 @ + 255 domain)
+                if (strlen($email) > 320) {
+                    $this->error = new \Egulias\EmailValidator\Result\InvalidEmail(
+                        new class implements \Egulias\EmailValidator\Result\Reason\Reason {
+                            public function code(): int { return 299; }
+                            public function description(): string { return 'Email exceeds RFC 5321 length limit of 320 characters'; }
+                        }, 
+                        $email
+                    );
+                    return false;
+                }
+                
+                // Check local part length (64 characters max)
+                $atPos = strpos($email, '@');
+                if ($atPos !== false && $atPos > 64) {
+                    $this->error = new \Egulias\EmailValidator\Result\InvalidEmail(
+                        new class implements \Egulias\EmailValidator\Result\Reason\Reason {
+                            public function code(): int { return 300; }
+                            public function description(): string { return 'Local part exceeds RFC 5321 limit of 64 characters'; }
+                        }, 
+                        $email
+                    );
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            public function getError(): ?\Egulias\EmailValidator\Result\InvalidEmail {
+                return $this->error;
+            }
+            
+            public function getWarnings(): array {
+                return [];
+            }
+        }
+
+        class RoleBasedEmailValidation implements \Egulias\EmailValidator\Validation\EmailValidation {
+            private $error;
+            private $roleAddresses = [
+                'admin', 'administrator', 'postmaster', 'hostmaster', 'webmaster',
+                'www', 'ftp', 'mail', 'email', 'mailman', 'listserv', 'majordomo',
+                'root', 'daemon', 'bin', 'sys', 'sync', 'games', 'man', 'lp', 'news',
+                'uucp', 'proxy', 'www-data', 'backup', 'list', 'irc', 'gnats', 'nobody',
+                'support', 'help', 'info', 'sales', 'marketing', 'noreply', 'no-reply',
+                'donotreply', 'do-not-reply', 'abuse', 'security', 'privacy', 'legal',
+                'billing', 'accounts', 'accounting', 'finance', 'hr', 'jobs', 'careers'
+            ];
+            
+            public function isValid(string $email, \Egulias\EmailValidator\EmailLexer $emailLexer): bool {
+                $atPos = strpos($email, '@');
+                if ($atPos === false) return true;
+                
+                $localPart = strtolower(substr($email, 0, $atPos));
+                
+                if (in_array($localPart, $this->roleAddresses)) {
+                    $this->error = new \Egulias\EmailValidator\Result\InvalidEmail(
+                        new class implements \Egulias\EmailValidator\Result\Reason\Reason {
+                            public function code(): int { return 301; }
+                            public function description(): string { return 'Email appears to be a role-based address'; }
+                        }, 
+                        $email
+                    );
+                    return false;
+                }
+                
+                return true;
+            }
+            
+            public function getError(): ?\Egulias\EmailValidator\Result\InvalidEmail {
+                return $this->error;
+            }
+            
+            public function getWarnings(): array {
+                return [];
+            }
+        }
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $validator = new EmailValidator();
@@ -470,6 +569,21 @@ session_start();
             }
             if (in_array('no_warnings', $validationTypes)) {
                 $validationStrategies['No RFC Warnings'] = new NoRFCWarningsValidation();
+            }
+            if (in_array('spoof_check', $validationTypes)) {
+                if (extension_loaded('intl')) {
+                    $validationStrategies['Spoof Check'] = new SpoofCheckValidation();
+                } else {
+                    echo '<div class="csv-info" style="background-color: #f8d7da; border-color: #dc3545;">';
+                    echo '<strong>Spoof Check Error:</strong> The intl extension is not loaded. Spoof check validation skipped.';
+                    echo '</div>';
+                }
+            }
+            if (in_array('length_check', $validationTypes)) {
+                $validationStrategies['Length Check'] = new EmailLengthValidation();
+            }
+            if (in_array('role_check', $validationTypes)) {
+                $validationStrategies['Role-based Check'] = new RoleBasedEmailValidation();
             }
 
             // Add combined validation only if multiple strategies exist, but keep individual ones
