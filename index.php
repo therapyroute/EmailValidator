@@ -1,3 +1,6 @@
+<?php
+session_start();
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -245,7 +248,6 @@
         </form>
 
         <?php
-        session_start();
         require_once 'vendor/autoload.php';
 
         use Egulias\EmailValidator\EmailValidator;
@@ -405,7 +407,7 @@
                         // Parse as CSV/TSV
                         $data = str_getcsv(trim($line), $delimiter);
                         $originalData['rows'][] = $data; // Store original row data
-                        
+
                         if (isset($data[$emailIndex]) && !empty(trim($data[$emailIndex]))) {
                             $email = trim($data[$emailIndex]);
                         } else {
@@ -596,7 +598,7 @@
 
             // Check if we have original file data stored
             $originalData = $_SESSION['original_file_data'] ?? null;
-            
+
             if ($originalData && !empty($originalData['headers']) && !empty($originalData['rows'])) {
                 // Enhanced download: merge original data with validation results
                 downloadEnhancedCSV($output, $results, $originalData);
@@ -617,7 +619,7 @@
 
             // Create enhanced headers
             $enhancedHeaders = $originalData['headers'];
-            
+
             // Add validation result columns
             $validationColumns = [];
             if (!empty($results)) {
@@ -629,7 +631,7 @@
                 }
             }
             $enhancedHeaders = array_merge($enhancedHeaders, $validationColumns);
-            
+
             // Write enhanced header
             fputcsv($output, $enhancedHeaders);
 
@@ -637,10 +639,10 @@
             foreach ($originalData['rows'] as $originalRow) {
                 $emailColumnIndex = $originalData['email_column_index'];
                 $email = isset($originalRow[$emailColumnIndex]) ? trim($originalRow[$emailColumnIndex]) : '';
-                
+
                 // Start with original row data
                 $enhancedRow = $originalRow;
-                
+
                 // Add validation results if email was validated
                 if (!empty($email) && isset($validationMap[$email])) {
                     $validationResult = $validationMap[$email];
@@ -655,7 +657,7 @@
                         $enhancedRow[] = 'Not Validated';
                     }
                 }
-                
+
                 fputcsv($output, $enhancedRow);
             }
         }
