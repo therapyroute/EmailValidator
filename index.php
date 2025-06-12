@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -168,7 +167,7 @@
 <body>
     <div class="container">
         <h1>📧 EmailValidator Interactive Tool</h1>
-        
+
         <form method="POST" enctype="multipart/form-data">
             <div class="form-section">
                 <h3>CSV File Upload</h3>
@@ -189,7 +188,7 @@
                         <small>Supported formats: CSV, TXT (one email per line), TSV</small>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="email_column">Email Column Name/Index:</label>
                     <input type="text" id="email_column" name="email_column" 
@@ -206,7 +205,7 @@
                            value="<?= htmlspecialchars($_POST['single_email'] ?? '') ?>" 
                            placeholder="example@domain.com">
                 </div>
-                
+
                 <div class="form-group">
                     <label for="bulk_emails">Bulk Emails (one per line):</label>
                     <textarea id="bulk_emails" name="bulk_emails" 
@@ -237,7 +236,7 @@
 
             <button type="submit" name="validate">Validate Emails</button>
             <button type="submit" name="demo">Run Demo</button>
-            
+
             <?php if (isset($_SESSION['last_results'])): ?>
             <button type="submit" name="download_csv" class="download-btn">Download Results as CSV</button>
             <?php endif; ?>
@@ -255,30 +254,30 @@
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $validator = new EmailValidator();
-            
+
             // Handle CSV download
             if (isset($_POST['download_csv']) && isset($_SESSION['last_results'])) {
                 downloadCSV($_SESSION['last_results']);
                 exit;
             }
-            
+
             echo '<div class="results">';
-            
+
             if (isset($_POST['demo'])) {
                 echo '<h3>Demo Results</h3>';
                 $results = runDemo($validator);
                 $_SESSION['last_results'] = $results;
             } elseif (isset($_POST['validate'])) {
                 echo '<h3>Validation Results</h3>';
-                
+
                 $emails = [];
-                
+
                 // Handle CSV file upload
                 if (isset($_FILES['csv_file']) && $_FILES['csv_file']['error'] === UPLOAD_ERR_OK) {
                     try {
                         $csvEmails = processCSVFile($_FILES['csv_file'], $_POST['email_column'] ?? 'email');
                         $emails = array_merge($emails, $csvEmails);
-                        
+
                         if (!empty($csvEmails)) {
                             echo '<div class="csv-info" style="background-color: #d4edda; border-color: #28a745;">';
                             echo '<strong>File processed successfully!</strong> Found ' . count($csvEmails) . ' email addresses.';
@@ -290,12 +289,12 @@
                         echo '</div>';
                     }
                 }
-                
+
                 // Collect emails from single input
                 if (!empty($_POST['single_email'])) {
                     $emails[] = trim($_POST['single_email']);
                 }
-                
+
                 // Collect emails from bulk input
                 if (!empty($_POST['bulk_emails'])) {
                     $bulkEmails = explode("\n", $_POST['bulk_emails']);
@@ -306,7 +305,7 @@
                         }
                     }
                 }
-                
+
                 if (empty($emails)) {
                     echo '<p>Please enter at least one email address or upload a CSV file.</p>';
                 } else {
@@ -315,7 +314,7 @@
                     $_SESSION['last_results'] = $results;
                 }
             }
-            
+
             echo '</div>';
         }
 
@@ -323,28 +322,28 @@
             $emails = [];
             $errors = [];
             $filePath = $file['tmp_name'];
-            
+
             // File validation
             if ($file['error'] !== UPLOAD_ERR_OK) {
                 throw new Exception('File upload error: ' . $file['error']);
             }
-            
+
             // File size validation (50MB max)
             if ($file['size'] > 50 * 1024 * 1024) {
                 throw new Exception('File too large. Maximum size is 50MB.');
             }
-            
+
             // File type validation
             $allowedTypes = ['text/csv', 'text/plain', 'text/tab-separated-values', 'application/csv'];
             $finfo = finfo_open(FILEINFO_MIME_TYPE);
             $mimeType = finfo_file($finfo, $filePath);
             finfo_close($finfo);
-            
+
             $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
             if (!in_array($mimeType, $allowedTypes) && !in_array($fileExtension, ['csv', 'txt', 'tsv'])) {
                 throw new Exception('Invalid file type. Please upload CSV, TXT, or TSV files only.');
             }
-            
+
             if (($handle = fopen($filePath, "r")) !== FALSE) {
                 // Determine delimiter
                 $delimiter = ',';
@@ -354,17 +353,17 @@
                     // For TXT files, treat each line as a single email
                     $delimiter = null;
                 }
-                
+
                 $header = null;
                 $emailIndex = 0;
-                
+
                 if ($delimiter) {
                     $header = fgetcsv($handle, 0, $delimiter);
-                    
+
                     // Try to find email column by name
                     if ($header) {
                         $emailIndex = array_search(strtolower($emailColumn), array_map('strtolower', $header));
-                        
+
                         // If not found by name, try as numeric index
                         if ($emailIndex === false && is_numeric($emailColumn)) {
                             $emailIndex = intval($emailColumn);
@@ -372,21 +371,21 @@
                                 $emailIndex = false;
                             }
                         }
-                        
+
                         // Default to first column if still not found
                         if ($emailIndex === false) {
                             $emailIndex = 0;
                         }
                     }
                 }
-                
+
                 // Read data rows with memory-efficient streaming
                 $rowCount = 0;
                 $lineNumber = 1;
                 $batchSize = 1000; // Process in batches for memory efficiency
                 while (($line = fgets($handle)) !== FALSE && $rowCount < 50000) { // Increased limit to 50000
                     $lineNumber++;
-                    
+
                     if ($delimiter) {
                         // Parse as CSV/TSV
                         $data = str_getcsv(trim($line), $delimiter);
@@ -399,7 +398,7 @@
                         // Parse as plain text (one email per line)
                         $email = trim($line);
                     }
-                    
+
                     if (!empty($email)) {
                         // Basic email format check
                         if (strpos($email, '@') !== false) {
@@ -411,7 +410,7 @@
                     $rowCount++;
                 }
                 fclose($handle);
-                
+
                 // Display processing summary
                 if (!empty($errors) && count($errors) <= 10) {
                     echo '<div class="csv-info" style="background-color: #fff3cd; border-color: #ffc107;">';
@@ -425,14 +424,14 @@
                     echo '</div>';
                 }
             }
-            
+
             return array_unique($emails); // Remove duplicates
         }
 
         function validateEmails($validator, $emails, $validationTypes) {
             $validationStrategies = [];
             $results = [];
-            
+
             if (in_array('rfc', $validationTypes)) {
                 $validationStrategies['RFC'] = new RFCValidation();
             }
@@ -442,14 +441,14 @@
             if (in_array('no_warnings', $validationTypes)) {
                 $validationStrategies['No RFC Warnings'] = new NoRFCWarningsValidation();
             }
-            
+
             // Multiple validation if more than one is selected
             if (count($validationStrategies) > 1) {
                 $validationStrategies['Combined'] = new MultipleValidationWithAnd(array_values($validationStrategies));
             }
-            
+
             echo '<div class="csv-results">';
-            
+
             if (count($emails) > 100) {
                 echo '<div class="csv-info">';
                 echo '<strong>Processing ' . count($emails) . ' emails...</strong> This may take a moment for DNS validation.';
@@ -458,12 +457,12 @@
                 }
                 echo '</div>';
                 flush(); // Send output immediately
-                
+
                 // Increase memory limit and execution time for large files
                 ini_set('memory_limit', '512M');
                 ini_set('max_execution_time', 300); // 5 minutes
             }
-            
+
             echo '<table>';
             echo '<thead><tr><th>Email</th>';
             foreach ($validationStrategies as $name => $validation) {
@@ -471,49 +470,49 @@
             }
             echo '<th>Warnings</th></tr></thead>';
             echo '<tbody>';
-            
+
             $processedCount = 0;
             $batchSize = 500; // Process in smaller batches for UI updates
-            
+
             foreach ($emails as $email) {
                 $processedCount++;
-                
+
                 // Flush output periodically for large datasets
                 if ($processedCount % $batchSize === 0) {
                     echo "<tr><td colspan='" . (count($validationStrategies) + 2) . "'>";
                     echo "<em>Processed $processedCount/" . count($emails) . " emails...</em>";
                     echo "</td></tr>";
                     flush();
-                    
+
                     // Clear some memory periodically
                     if (function_exists('gc_collect_cycles')) {
                         gc_collect_cycles();
                     }
                 }
-                
+
                 echo "<tr>";
                 echo "<td class='email-display'>$email</td>";
-                
+
                 $emailResult = ['email' => $email];
-                
+
                 foreach ($validationStrategies as $name => $validation) {
                     $isValid = $validator->isValid($email, $validation);
                     $status = $isValid ? 'valid' : 'invalid';
                     $icon = $isValid ? '✅' : '❌';
-                    
+
                     echo "<td class='$status'>$icon " . ($isValid ? 'Valid' : 'Invalid');
-                    
+
                     $errorMsg = '';
                     if (!$isValid && $validator->getError()) {
                         $errorMsg = $validator->getError()->description();
                         echo "<br><small>$errorMsg</small>";
                     }
                     echo "</td>";
-                    
+
                     $emailResult[$name] = $isValid ? 'Valid' : 'Invalid';
                     $emailResult[$name . '_error'] = $errorMsg;
                 }
-                
+
                 // Warnings column
                 $warningsText = '';
                 if ($validator->hasWarnings()) {
@@ -525,16 +524,16 @@
                 }
                 echo "<td><small>$warningsText</small></td>";
                 $emailResult['warnings'] = $warningsText;
-                
+
                 echo "</tr>";
                 $results[] = $emailResult;
             }
-            
+
             echo '</tbody></table>';
             echo '</div>';
-            
+
             echo '<p><strong>Total emails processed:</strong> ' . count($emails) . '</p>';
-            
+
             return $results;
         }
 
@@ -549,15 +548,15 @@
                 'user@[127.0.0.1]',
                 '"quoted string"@example.com'
             ];
-            
+
             echo '<div class="demo-section form-section">';
             echo '<h4>Demo with various email formats:</h4>';
-            
+
             $validationTypes = ['rfc', 'dns', 'no_warnings'];
             $results = validateEmails($validator, $demoEmails, $validationTypes);
-            
+
             echo '</div>';
-            
+
             return $results;
         }
 
@@ -565,24 +564,24 @@
             if (empty($results)) {
                 return;
             }
-            
+
             $filename = 'email_validation_results_' . date('Y-m-d_H-i-s') . '.csv';
-            
+
             header('Content-Type: text/csv');
             header('Content-Disposition: attachment; filename="' . $filename . '"');
             header('Cache-Control: no-cache, must-revalidate');
-            
+
             $output = fopen('php://output', 'w');
-            
+
             // Write header
             $headers = array_keys($results[0]);
             fputcsv($output, $headers);
-            
+
             // Write data
             foreach ($results as $row) {
                 fputcsv($output, $row);
             }
-            
+
             fclose($output);
         }
         ?>
