@@ -702,16 +702,21 @@ session_start();
             $errorTypes = [];
 
             foreach ($results as $result) {
-                $hasValidResult = false;
+                $allValidationsPass = true;
+                $hasAnyValidation = false;
+                
+                // Check if ALL validations pass for this email
                 foreach ($result as $key => $value) {
                     if (strpos($key, '_error') === false && strpos($key, '_type') === false && $key !== 'email' && $key !== 'warnings') {
-                        if ($value === 'Valid') {
-                            $hasValidResult = true;
+                        $hasAnyValidation = true;
+                        if ($value === 'Invalid') {
+                            $allValidationsPass = false;
                             break;
                         }
                     }
                 }
-                if ($hasValidResult) {
+                
+                if ($hasAnyValidation && $allValidationsPass) {
                     $validCount++;
                 } else {
                     $invalidCount++;
