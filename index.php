@@ -173,13 +173,20 @@
             <div class="form-section">
                 <h3>CSV File Upload</h3>
                 <div class="csv-info">
-                    <strong>CSV Format:</strong> Upload a CSV file with email addresses. The file should have a column named 'email' or emails in the first column.
+                    <strong>Supported File Formats:</strong>
+                    <ul style="margin: 5px 0; padding-left: 20px;">
+                        <li><strong>CSV:</strong> Comma-separated values with headers</li>
+                        <li><strong>TSV:</strong> Tab-separated values with headers</li>
+                        <li><strong>TXT:</strong> Plain text, one email per line</li>
+                    </ul>
+                    <strong>Requirements:</strong> Max 10MB, up to 5,000 emails per file
                 </div>
                 <div class="form-group">
-                    <label for="csv_file">Upload CSV File:</label>
+                    <label for="csv_file">Upload File:</label>
                     <div class="file-upload-area">
-                        <input type="file" id="csv_file" name="csv_file" accept=".csv" style="margin-bottom: 10px;">
-                        <p>Choose a CSV file or drag and drop it here</p>
+                        <input type="file" id="csv_file" name="csv_file" accept=".csv,.txt,.tsv" style="margin-bottom: 10px;">
+                        <p>Choose a CSV, TXT, or TSV file (max 10MB) or drag and drop it here</p>
+                        <small>Supported formats: CSV, TXT (one email per line), TSV</small>
                     </div>
                 </div>
                 
@@ -268,8 +275,20 @@
                 
                 // Handle CSV file upload
                 if (isset($_FILES['csv_file']) && $_FILES['csv_file']['error'] === UPLOAD_ERR_OK) {
-                    $csvEmails = processCSVFile($_FILES['csv_file'], $_POST['email_column'] ?? 'email');
-                    $emails = array_merge($emails, $csvEmails);
+                    try {
+                        $csvEmails = processCSVFile($_FILES['csv_file'], $_POST['email_column'] ?? 'email');
+                        $emails = array_merge($emails, $csvEmails);
+                        
+                        if (!empty($csvEmails)) {
+                            echo '<div class="csv-info" style="background-color: #d4edda; border-color: #28a745;">';
+                            echo '<strong>File processed successfully!</strong> Found ' . count($csvEmails) . ' email addresses.';
+                            echo '</div>';
+                        }
+                    } catch (Exception $e) {
+                        echo '<div class="csv-info" style="background-color: #f8d7da; border-color: #dc3545;">';
+                        echo '<strong>File Processing Error:</strong> ' . htmlspecialchars($e->getMessage());
+                        echo '</div>';
+                    }
                 }
                 
                 // Collect emails from single input
@@ -302,42 +321,108 @@
 
         function processCSVFile($file, $emailColumn) {
             $emails = [];
+            $errors = [];
             $filePath = $file['tmp_name'];
             
+            // File validation
+            if ($file['error'] !== UPLOAD_ERR_OK) {
+                throw new Exception('File upload error: ' . $file['error']);
+            }
+            
+            // File size validation (10MB max)
+            if ($file['size'] > 10 * 1024 * 1024) {
+                throw new Exception('File too large. Maximum size is 10MB.');
+            }
+            
+            // File type validation
+            $allowedTypes = ['text/csv', 'text/plain', 'text/tab-separated-values', 'application/csv'];
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            $mimeType = finfo_file($finfo, $filePath);
+            finfo_close($finfo);
+            
+            $fileExtension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+            if (!in_array($mimeType, $allowedTypes) && !in_array($fileExtension, ['csv', 'txt', 'tsv'])) {
+                throw new Exception('Invalid file type. Please upload CSV, TXT, or TSV files only.');
+            }
+            
             if (($handle = fopen($filePath, "r")) !== FALSE) {
-                $header = fgetcsv($handle);
-                $emailIndex = false;
+                // Determine delimiter
+                $delimiter = ',';
+                if ($fileExtension === 'tsv') {
+                    $delimiter = "\t";
+                } elseif ($fileExtension === 'txt') {
+                    // For TXT files, treat each line as a single email
+                    $delimiter = null;
+                }
                 
-                // Try to find email column by name
-                if ($header) {
-                    $emailIndex = array_search(strtolower($emailColumn), array_map('strtolower', $header));
+                $header = null;
+                $emailIndex = 0;
+                
+                if ($delimiter) {
+                    $header = fgetcsv($handle, 0, $delimiter);
                     
-                    // If not found by name, try as numeric index
-                    if ($emailIndex === false && is_numeric($emailColumn)) {
-                        $emailIndex = intval($emailColumn);
-                        if ($emailIndex >= count($header)) {
-                            $emailIndex = false;
+                    // Try to find email column by name
+                    if ($header) {
+                        $emailIndex = array_search(strtolower($emailColumn), array_map('strtolower', $header));
+                        
+                        // If not found by name, try as numeric index
+                        if ($emailIndex === false && is_numeric($emailColumn)) {
+                            $emailIndex = intval($emailColumn);
+                            if ($emailIndex >= count($header)) {
+                                $emailIndex = false;
+                            }
                         }
-                    }
-                    
-                    // Default to first column if still not found
-                    if ($emailIndex === false) {
-                        $emailIndex = 0;
+                        
+                        // Default to first column if still not found
+                        if ($emailIndex === false) {
+                            $emailIndex = 0;
+                        }
                     }
                 }
                 
                 // Read data rows
                 $rowCount = 0;
-                while (($data = fgetcsv($handle)) !== FALSE && $rowCount < 1000) { // Limit to 1000 emails
-                    if (isset($data[$emailIndex]) && !empty(trim($data[$emailIndex]))) {
-                        $email = trim($data[$emailIndex]);
-                        if (filter_var($email, FILTER_VALIDATE_EMAIL) || strpos($email, '@') !== false) {
+                $lineNumber = 1;
+                while (($line = fgets($handle)) !== FALSE && $rowCount < 5000) { // Increased limit to 5000
+                    $lineNumber++;
+                    
+                    if ($delimiter) {
+                        // Parse as CSV/TSV
+                        $data = str_getcsv(trim($line), $delimiter);
+                        if (isset($data[$emailIndex]) && !empty(trim($data[$emailIndex]))) {
+                            $email = trim($data[$emailIndex]);
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        // Parse as plain text (one email per line)
+                        $email = trim($line);
+                    }
+                    
+                    if (!empty($email)) {
+                        // Basic email format check
+                        if (strpos($email, '@') !== false) {
                             $emails[] = $email;
+                        } else {
+                            $errors[] = "Line $lineNumber: '$email' doesn't appear to be an email";
                         }
                     }
                     $rowCount++;
                 }
                 fclose($handle);
+                
+                // Display processing summary
+                if (!empty($errors) && count($errors) <= 10) {
+                    echo '<div class="csv-info" style="background-color: #fff3cd; border-color: #ffc107;">';
+                    echo '<strong>File Processing Warnings:</strong><br>';
+                    foreach (array_slice($errors, 0, 10) as $error) {
+                        echo '• ' . htmlspecialchars($error) . '<br>';
+                    }
+                    if (count($errors) > 10) {
+                        echo '• ... and ' . (count($errors) - 10) . ' more warnings<br>';
+                    }
+                    echo '</div>';
+                }
             }
             
             return array_unique($emails); // Remove duplicates
@@ -363,6 +448,14 @@
             }
             
             echo '<div class="csv-results">';
+            
+            if (count($emails) > 100) {
+                echo '<div class="csv-info">';
+                echo '<strong>Processing ' . count($emails) . ' emails...</strong> This may take a moment for DNS validation.';
+                echo '</div>';
+                flush(); // Send output immediately
+            }
+            
             echo '<table>';
             echo '<thead><tr><th>Email</th>';
             foreach ($validationStrategies as $name => $validation) {
