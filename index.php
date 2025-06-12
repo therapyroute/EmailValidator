@@ -1,5 +1,103 @@
 <?php
 session_start();
+
+// Handle CSV download BEFORE any HTML output
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['download_csv']) && isset($_SESSION['last_results'])) {
+    require_once 'vendor/autoload.php';
+    
+    function downloadCSV($results) {
+        if (empty($results)) {
+            return;
+        }
+
+        $filename = 'email_validation_results_' . date('Y-m-d_H-i-s') . '.csv';
+
+        header('Content-Type: text/csv');
+        header('Content-Disposition: attachment; filename="' . $filename . '"');
+        header('Cache-Control: no-cache, must-revalidate');
+
+        $output = fopen('php://output', 'w');
+
+        // Check if we have original file data stored
+        $originalData = $_SESSION['original_file_data'] ?? null;
+
+        if ($originalData && !empty($originalData['headers']) && !empty($originalData['rows'])) {
+            // Enhanced download: merge original data with validation results
+            downloadEnhancedCSV($output, $results, $originalData);
+        } else {
+            // Simple download: validation results only
+            downloadSimpleCSV($output, $results);
+        }
+
+        fclose($output);
+        exit; // Important: exit after download
+    }
+
+    function downloadEnhancedCSV($output, $results, $originalData) {
+        // Create a mapping of emails to validation results
+        $validationMap = [];
+        foreach ($results as $result) {
+            $validationMap[$result['email']] = $result;
+        }
+
+        // Create enhanced headers
+        $enhancedHeaders = $originalData['headers'];
+
+        // Add validation result columns
+        $validationColumns = [];
+        if (!empty($results)) {
+            $sampleResult = reset($results);
+            foreach ($sampleResult as $key => $value) {
+                if ($key !== 'email') {
+                    $validationColumns[] = 'validation_' . $key;
+                }
+            }
+        }
+        $enhancedHeaders = array_merge($enhancedHeaders, $validationColumns);
+
+        // Write enhanced header
+        fputcsv($output, $enhancedHeaders);
+
+        // Write enhanced data rows
+        foreach ($originalData['rows'] as $originalRow) {
+            $emailColumnIndex = $originalData['email_column_index'];
+            $email = isset($originalRow[$emailColumnIndex]) ? trim($originalRow[$emailColumnIndex]) : '';
+
+            // Start with original row data
+            $enhancedRow = $originalRow;
+
+            // Add validation results if email was validated
+            if (!empty($email) && isset($validationMap[$email])) {
+                $validationResult = $validationMap[$email];
+                foreach ($validationResult as $key => $value) {
+                    if ($key !== 'email') {
+                        $enhancedRow[] = $value;
+                    }
+                }
+            } else {
+                // Fill with empty validation columns if no validation result
+                foreach ($validationColumns as $col) {
+                    $enhancedRow[] = 'Not Validated';
+                }
+            }
+
+            fputcsv($output, $enhancedRow);
+        }
+    }
+
+    function downloadSimpleCSV($output, $results) {
+        // Write header
+        $headers = array_keys($results[0]);
+        fputcsv($output, $headers);
+
+        // Write data
+        foreach ($results as $row) {
+            fputcsv($output, $row);
+        }
+    }
+    
+    downloadCSV($_SESSION['last_results']);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -363,12 +461,6 @@ session_start();
 
         if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $validator = new EmailValidator();
-
-            // Handle CSV download
-            if (isset($_POST['download_csv']) && isset($_SESSION['last_results'])) {
-                downloadCSV($_SESSION['last_results']);
-                exit;
-            }
 
             echo '<div class="results">';
 
@@ -775,95 +867,7 @@ session_start();
             return $results;
         }
 
-        function downloadCSV($results) {
-            if (empty($results)) {
-                return;
-            }
-
-            $filename = 'email_validation_results_' . date('Y-m-d_H-i-s') . '.csv';
-
-            header('Content-Type: text/csv');
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Cache-Control: no-cache, must-revalidate');
-
-            $output = fopen('php://output', 'w');
-
-            // Check if we have original file data stored
-            $originalData = $_SESSION['original_file_data'] ?? null;
-
-            if ($originalData && !empty($originalData['headers']) && !empty($originalData['rows'])) {
-                // Enhanced download: merge original data with validation results
-                downloadEnhancedCSV($output, $results, $originalData);
-            } else {
-                // Simple download: validation results only
-                downloadSimpleCSV($output, $results);
-            }
-
-            fclose($output);
-        }
-
-        function downloadEnhancedCSV($output, $results, $originalData) {
-            // Create a mapping of emails to validation results
-            $validationMap = [];
-            foreach ($results as $result) {
-                $validationMap[$result['email']] = $result;
-            }
-
-            // Create enhanced headers
-            $enhancedHeaders = $originalData['headers'];
-
-            // Add validation result columns
-            $validationColumns = [];
-            if (!empty($results)) {
-                $sampleResult = reset($results);
-                foreach ($sampleResult as $key => $value) {
-                    if ($key !== 'email') {
-                        $validationColumns[] = 'validation_' . $key;
-                    }
-                }
-            }
-            $enhancedHeaders = array_merge($enhancedHeaders, $validationColumns);
-
-            // Write enhanced header
-            fputcsv($output, $enhancedHeaders);
-
-            // Write enhanced data rows
-            foreach ($originalData['rows'] as $originalRow) {
-                $emailColumnIndex = $originalData['email_column_index'];
-                $email = isset($originalRow[$emailColumnIndex]) ? trim($originalRow[$emailColumnIndex]) : '';
-
-                // Start with original row data
-                $enhancedRow = $originalRow;
-
-                // Add validation results if email was validated
-                if (!empty($email) && isset($validationMap[$email])) {
-                    $validationResult = $validationMap[$email];
-                    foreach ($validationResult as $key => $value) {
-                        if ($key !== 'email') {
-                            $enhancedRow[] = $value;
-                        }
-                    }
-                } else {
-                    // Fill with empty validation columns if no validation result
-                    foreach ($validationColumns as $col) {
-                        $enhancedRow[] = 'Not Validated';
-                    }
-                }
-
-                fputcsv($output, $enhancedRow);
-            }
-        }
-
-        function downloadSimpleCSV($output, $results) {
-            // Write header
-            $headers = array_keys($results[0]);
-            fputcsv($output, $headers);
-
-            // Write data
-            foreach ($results as $row) {
-                fputcsv($output, $row);
-            }
-        }
+        
         ?>
     </div>
 </body>
