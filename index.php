@@ -238,7 +238,9 @@
             <button type="submit" name="demo">Run Demo</button>
 
             <?php if (isset($_SESSION['last_results'])): ?>
-            <button type="submit" name="download_csv" class="download-btn">Download Results as CSV</button>
+            <button type="submit" name="download_csv" class="download-btn">
+                <?= isset($_SESSION['original_file_data']) ? 'Download Enhanced CSV (Original + Results)' : 'Download Results as CSV' ?>
+            </button>
             <?php endif; ?>
         </form>
 
@@ -322,6 +324,12 @@
             $emails = [];
             $errors = [];
             $filePath = $file['tmp_name'];
+            $originalData = [
+                'headers' => [],
+                'rows' => [],
+                'email_column_index' => 0,
+                'filename' => $file['name']
+            ];
 
             // File validation
             if ($file['error'] !== UPLOAD_ERR_OK) {
@@ -359,6 +367,7 @@
 
                 if ($delimiter) {
                     $header = fgetcsv($handle, 0, $delimiter);
+                    $originalData['headers'] = $header ?: [];
 
                     // Try to find email column by name
                     if ($header) {
@@ -377,7 +386,13 @@
                             $emailIndex = 0;
                         }
                     }
+                } else {
+                    // For TXT files, create a simple header
+                    $originalData['headers'] = ['email'];
+                    $emailIndex = 0;
                 }
+
+                $originalData['email_column_index'] = $emailIndex;
 
                 // Read data rows with memory-efficient streaming
                 $rowCount = 0;
@@ -389,6 +404,8 @@
                     if ($delimiter) {
                         // Parse as CSV/TSV
                         $data = str_getcsv(trim($line), $delimiter);
+                        $originalData['rows'][] = $data; // Store original row data
+                        
                         if (isset($data[$emailIndex]) && !empty(trim($data[$emailIndex]))) {
                             $email = trim($data[$emailIndex]);
                         } else {
@@ -397,6 +414,7 @@
                     } else {
                         // Parse as plain text (one email per line)
                         $email = trim($line);
+                        $originalData['rows'][] = [$email]; // Store as single-column row
                     }
 
                     if (!empty($email)) {
@@ -410,6 +428,9 @@
                     $rowCount++;
                 }
                 fclose($handle);
+
+                // Store original file data in session for enhanced download
+                $_SESSION['original_file_data'] = $originalData;
 
                 // Display processing summary
                 if (!empty($errors) && count($errors) <= 10) {
@@ -573,6 +594,73 @@
 
             $output = fopen('php://output', 'w');
 
+            // Check if we have original file data stored
+            $originalData = $_SESSION['original_file_data'] ?? null;
+            
+            if ($originalData && !empty($originalData['headers']) && !empty($originalData['rows'])) {
+                // Enhanced download: merge original data with validation results
+                downloadEnhancedCSV($output, $results, $originalData);
+            } else {
+                // Simple download: validation results only
+                downloadSimpleCSV($output, $results);
+            }
+
+            fclose($output);
+        }
+
+        function downloadEnhancedCSV($output, $results, $originalData) {
+            // Create a mapping of emails to validation results
+            $validationMap = [];
+            foreach ($results as $result) {
+                $validationMap[$result['email']] = $result;
+            }
+
+            // Create enhanced headers
+            $enhancedHeaders = $originalData['headers'];
+            
+            // Add validation result columns
+            $validationColumns = [];
+            if (!empty($results)) {
+                $sampleResult = reset($results);
+                foreach ($sampleResult as $key => $value) {
+                    if ($key !== 'email') {
+                        $validationColumns[] = 'validation_' . $key;
+                    }
+                }
+            }
+            $enhancedHeaders = array_merge($enhancedHeaders, $validationColumns);
+            
+            // Write enhanced header
+            fputcsv($output, $enhancedHeaders);
+
+            // Write enhanced data rows
+            foreach ($originalData['rows'] as $originalRow) {
+                $emailColumnIndex = $originalData['email_column_index'];
+                $email = isset($originalRow[$emailColumnIndex]) ? trim($originalRow[$emailColumnIndex]) : '';
+                
+                // Start with original row data
+                $enhancedRow = $originalRow;
+                
+                // Add validation results if email was validated
+                if (!empty($email) && isset($validationMap[$email])) {
+                    $validationResult = $validationMap[$email];
+                    foreach ($validationResult as $key => $value) {
+                        if ($key !== 'email') {
+                            $enhancedRow[] = $value;
+                        }
+                    }
+                } else {
+                    // Fill with empty validation columns if no validation result
+                    foreach ($validationColumns as $col) {
+                        $enhancedRow[] = 'Not Validated';
+                    }
+                }
+                
+                fputcsv($output, $enhancedRow);
+            }
+        }
+
+        function downloadSimpleCSV($output, $results) {
             // Write header
             $headers = array_keys($results[0]);
             fputcsv($output, $headers);
@@ -581,8 +669,6 @@
             foreach ($results as $row) {
                 fputcsv($output, $row);
             }
-
-            fclose($output);
         }
         ?>
     </div>
